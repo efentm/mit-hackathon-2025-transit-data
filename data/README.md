@@ -39,6 +39,8 @@ The table below lists the main columns of [``data/demographics.gpkg``](data/demo
 | Commute | ``commute_walk`` | Workers walking to work | 2019-2023 ACS |
 | Commute | ``commute_bike`` | Workers biking to work | 2019-2023 ACS |
 | Commute | ``commute_walkBike`` | Workers walking or biking to work | 2019-2023 ACS |
+| Commute | ``commute_fromHome`` | Workers who worked from home | 2019-2023 ACS |
+| Commute | ``commute_otherModes`` | Workers using taxicab, motorcycle, or other means to work | 2019-2023 ACS |
 | Commute | ``commute_workersNotHome`` | Total workers 16 years and over who did not work from home | 2019-2023 ACS |
 | Commute | ``commute_time30min`` | Workers taking at least 30 minutes to travel to work | 2019-2023 ACS |
 | Commute | ``commute_time45min`` | Workers taking at least 45 minutes to travel to work | 2019-2023 ACS |

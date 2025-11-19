@@ -1,6 +1,9 @@
 CENSUS_FIELDS_CATEGORIES = {
     "population": {
         "source": "decennial_dhc",  # Decennial Census -> Demographic and Housing Characteristics
+        "years": 2020,  # If None, uses most recent year available 
+                        # Can specify multiples: "year": [2010, 2020]
+                        # This will add year as a prefix in field name, e.g. "2020_race_white"
         "fields": {
             "2020": ["P1_001N"],
         },
@@ -10,6 +13,7 @@ CENSUS_FIELDS_CATEGORIES = {
     },
     "race": {
         "source": "decennial_dhc",
+        "years": 2020,
         "fields": {
             "white": ["P3_002N"],
             "nonWhite": ["P3_003N", "P3_004N", "P3_005N", "P3_006N", "P3_007N", "P3_008N"],
@@ -26,6 +30,7 @@ CENSUS_FIELDS_CATEGORIES = {
     },
     "income": {
         "source": "acs5",
+        "years": 2023,
         "fields": {
             "median": ["B19013_001"],
             "050PercentPoverty": ["C17002_002"],
@@ -40,6 +45,7 @@ CENSUS_FIELDS_CATEGORIES = {
     },
     "commute": {
         "source": "acs5",
+        "years": 2023,
         "fields": {
             "workersTotal": ["B08301_001"],
             "transit": ["B08301_010"],
@@ -50,6 +56,8 @@ CENSUS_FIELDS_CATEGORIES = {
             "walk": ["B08301_019"],
             "bike": ["B08301_018"],
             "walkBike": ["B08301_018", "B08301_019"],
+            "fromHome": ["B08301_021"],
+            "otherModes": ["B08301_016", "B08301_017", "B08301_020"],
 
             "workersNotHome": ["B08303_001"],
             "time30min": ["B08303_008", "B08303_009", "B08303_010", "B08303_011", "B08303_012", "B08303_013"],
@@ -72,10 +80,13 @@ CENSUS_FIELDS_CATEGORIES = {
             "walk": "B08301_001",
             "bike": "B08301_001",
             "walkBike": "B08301_001",
+            "fromHome": "B08301_001",
+            "otherModes": "B08301_001",
         }
     },
     "vehicles": {
         "source": "acs5",
+        "years": 2023,
         "fields": {
             "householdTotal": ["B25044_001"],
             "0inHousehold": ["B25044_003", "B25044_010"],

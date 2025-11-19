@@ -1,10 +1,11 @@
 import requests
 import urllib.parse
 import os
+import copy
 # import json
 # import re
 # import importlib
-# import sys
+import sys
 
 import pandas as pd
 import numpy as np
@@ -240,8 +241,81 @@ def load_census_shapes(state='MA', level='block', year=None, remove_water=True, 
     return shapes
 
 
+def format_categories_dict(categories, inplace=False):
+    """
+    Given a categories dict (such as CENSUS_FIELDS_CATEGORIES),
+    format its 'source' and 'years' fields for each category, and replace 
+    individual field names with "source_field" or "year_source_field" if applicable.
+
+    :param categories: Categories dict
+    :return: Formatted categories dict
+    """
+    if not inplace:
+        categories = copy.deepcopy(categories)
+        
+    # Format source and years
+    def source_to_api_dir(source):
+        if source.startswith('acs'):
+            return 'acs/acs1' if source in ['acs1'] else 'acs/acs5'
+        elif source.startswith('dec'):  # e.g. decennial_dhc
+            dec_suffix = source.split('_')[-1] if '_' in source else 'dhc'
+            return f"dec/{dec_suffix}"
+        elif source == 'dhc':
+            return "dec/dhc"
+        else:
+            print(f"Warning: Unrecognized source '{source}'. Returning source as is. "
+                    "Make sure it matches Census API, such as 'acs/acs5'.", 
+                    file=sys.stderr)
+            return source
+
+    def format_years(source, years):
+        if years is None:
+            return to_list(CENSUS_LATEST_YEARS[source])
+        else:
+            return to_list(years)
+        
+    for cat_name, cat_dict in categories.items():
+        cat_dict['source'] = source_to_api_dir(cat_dict['source'])
+        cat_dict['years'] = format_years(cat_dict['source'], cat_dict.get('years', None))
+
+    # Format field names
+    # First, determine if multiple years are specified
+    years_by_source = {}
+    for cat_name, cat_dict in categories.items():
+        source = cat_dict['source']
+        years = cat_dict['years']
+        if source not in years_by_source:
+            years_by_source[source] = set()
+        years_by_source[source].update(years)
+    years_as_prefix = any((len(years) > 1) for source, years in years_by_source.items())
+
+    def get_field_name(cat_name, field_name, year=None):
+        if years_as_prefix and years is not None:
+            return f"{year}_{cat_name}_{field_name}"
+        else:
+            return f"{cat_name}_{field_name}"
+        
+    for cat_name, cat_dict in categories.items():
+        fields_formatted = {}
+        fields_universe_formatted = {}
+        if 'default' in cat_dict.get('fields_universe', {}):
+            fields_universe_formatted['default'] = cat_dict['fields_universe']['default']
+
+        for field_name, field_codes in cat_dict['fields'].items():
+            for year in cat_dict['years']:
+                new_field_name = get_field_name(cat_name, field_name, year=year)
+                fields_formatted[new_field_name] = field_codes
+                if field_name in cat_dict.get('fields_universe', {}):
+                    fields_universe_formatted[new_field_name] = cat_dict['fields_universe'][field_name]
+
+        cat_dict['fields'] = fields_formatted
+        cat_dict['fields_universe'] = fields_universe_formatted
+
+    return categories
+
+
 def get_census_fields(categories, api_key,
-                      state='MA', level='blockgroup', year=None,
+                      state='MA', level='blockgroup',
                       compute_ratios=True, add_place_names=False):
     """
     Pull tabular census data from either US Decennial Census or American Community Survey,
@@ -253,11 +327,14 @@ def get_census_fields(categories, api_key,
     :param categories: A dict object that specifies several categories of data (e.g. race, income)
         needed. Each category can have its own:
         * source: 'decennial', 'decennial_dhc', 'acs', 'acs5', 'acs1'
+        * years: survey years (last year in the period for 5-year ACS). Can be a singular value or a list.
+            If None, uses most recent year available, as specified in CENSUS_LATEST_YEARS.
         * fields: dict of field names and corresponding census field codes (list)
         * fields_universe: dict of field names and corresponding census field codes (single code)
             whose data is the total count in this universe (e.g. population whose income is determined)
         Example: {"income": {
             "source": "acs5",
+            "years": 2023,  # [2022, 2023]
             "fields": {
                 "householdTotal": ["C17002_001"],
                 "median": ["B19013_001"],
@@ -275,8 +352,6 @@ def get_census_fields(categories, api_key,
     :param state: State, either as string or using the us package: states.MA
     :param level: Geographic level, either 'block', 'blockgroup', 'tract' or 'place'
         ('block' only for Decennial Census)
-    :param year: Survey year (last year in the period for 5-year ACS). 
-        Setting this to None will load the latest available year, as specified in CENSUS_LATEST_YEARS.
     :param compute_ratios: Whether to compute ratio fields for each field requested, using the 
         corresponding universe field. (e.g. % of population with income below poverty level).
     :param add_place_names: Whether to add place names when level is 'place'.
@@ -292,21 +367,27 @@ def get_census_fields(categories, api_key,
         state = us.states.lookup(state)
     state_id = state.fips
 
+    # (0) Format source, years and field names in categories dict
+    categories = format_categories_dict(categories, inplace=False)
+
     # (1) Decompose categories into individual fields requested
     # e.g. income_median, income_100PercentPoverty, etc.
+    # Also parse sources (to API dir) and years (to list)
     fields = []
     for cat_name, cat_dict in categories.items():
         for field_name, field_codes in cat_dict['fields'].items():
-            fields.append({
-                'name': f"{cat_name}_{field_name}",  # 'income_100PercentPoverty'
-                'source': cat_dict['source'],  # 'decennial_dhc', 'acs', 'acs1', 'acs5'
-                'sum_codes': field_codes,  #  ["C17002_002", "C17002_003"]: they will be summed
-                'universe_code': cat_dict['fields_universe'].get(
-                    field_name, 
-                    cat_dict['fields_universe']['default']
-                ),  # "C17002_001", Field code whose data is the total count in this universe (e.g. population whose income is determined)
-                    # If None, this field is not treated as a population count (e.g. income_median), and density and ratio fields will not be created
-            })
+            for year in cat_dict['years']:
+                fields.append({
+                    'name': field_name,
+                    'source': cat_dict['source'],  # 'decennial_dhc', 'acs', 'acs1', 'acs5'
+                    'year': year,
+                    'sum_codes': field_codes,  #  ["C17002_002", "C17002_003"]: they will be summed
+                    'universe_code': cat_dict['fields_universe'].get(
+                        field_name, 
+                        cat_dict['fields_universe']['default']
+                    ),  # "C17002_001", Field code whose data is the total count in this universe (e.g. population whose income is determined)
+                        # If None, this field is not treated as a population count (e.g. income_median), and density and ratio fields will not be created
+                })
 
     # (2) Add suffic 'E' to ACS field codes (E for estimates), so C17002_002 becomes C17002_002E
     # Also ensure that sum_codes is a list
@@ -322,42 +403,27 @@ def get_census_fields(categories, api_key,
 
     # ACS_TOTAL_POPULATION_e = "B01001_001"
 
-    # (3) Gather all field codes queried for each source
-    codes_by_source = {}
+    # (3) Gather all field codes queried for each (source, year) pair
+    codes_by_source_year = {}
     for field in fields:
         source = field['source']
-        if source not in codes_by_source:
-            codes_by_source[source] = set()
-        codes_by_source[source].update(field['sum_codes'])
+        year = field['year']
+        #if source not in codes_by_source_year:
+            # codes_by_source_year[source] = set()
+        # codes_by_source_year[source].update(field['sum_codes'])
+        if (source, year) not in codes_by_source_year:
+            codes_by_source_year[(source, year)] = set()
+        codes_set = codes_by_source_year[(source, year)]
+
+        codes_set.update(field['sum_codes'])
 
         if field['universe_code'] and field['universe_code'] not in ['DENSITY_ONLY', 'NO_DENSITY_OR_RATIO']:
-            codes_by_source[source].add(field['universe_code'])
+            codes_set.add(field['universe_code'])
             
         # if source.startswith('acs'):
         #     codes_by_source[source].add(ACS_TOTAL_POPULATION_e)
         if add_place_names and level.startswith('place'):
-            codes_by_source[source].add('NAME')
-
-    # Helper function for API endpoints
-    def source_to_api_dir(source):
-        """
-        Map source string to Census API directory, such as 'acs/acs5', 'dec/dhc'.
-
-        The complete list of directories is at the Census API homepage: https://api.census.gov/data.html,
-        specifically in the "Dataset Name" column.
-
-        :param source: Source string, e.g. 'acs', 'acs5', 'acs1', 'decennial_dhc'
-        :return: API directory string, e.g. 'acs/acs5', 'dec/dhc'
-        """
-        if source.startswith('acs'):
-            return 'acs/acs1' if source in ['acs1'] else 'acs/acs5'
-        elif source.startswith('dec'):  # e.g. decennial_dhc
-            dec_suffix = source.split('_')[-1] if '_' in source else 'dhc'
-            return f"dec/{dec_suffix}"
-        elif source == 'dhc':
-            return "dec/dhc"
-        else:
-            raise Exception(f"Unknown source: {source}")
+            codes_set.add('NAME')
 
     # Geography hierarchy from census API. 
     # They can be found in the "geographies" column of https://api.census.gov/data.html
@@ -373,11 +439,8 @@ def get_census_fields(categories, api_key,
         GEO_HIERARCHIES[k + 's'] = v
 
     # (4) Make API call
-    df_by_source = {}
-    for source, all_fields in codes_by_source.items():
-        api_dir = source_to_api_dir(source)  # API endpoint, 'acs/acs5' or 'dec/dhc'
-        year_to_use = year if year is not None else CENSUS_LATEST_YEARS[api_dir]
-
+    df_by_source_year = {}
+    for (source, year), all_fields in codes_by_source_year.items():
         # Format geography hierarchy
         geo_hierarchy = GEO_HIERARCHIES[level]
         geo_for = geo_hierarchy[-1] + ":*"
@@ -390,9 +453,9 @@ def get_census_fields(categories, api_key,
                 geo_in.append(f"{higher_geo}:*")
 
         # Make API call
-        df_by_source[source] = pd.DataFrame(get_census(
-            dataset=api_dir,
-            year=year_to_use,
+        df_by_source_year[(source, year)] = pd.DataFrame(get_census(
+            dataset=source,
+            year=year,
             variables=list(all_fields),
             params={
                 "for": geo_for,
@@ -404,7 +467,7 @@ def get_census_fields(categories, api_key,
         ))
 
     # (5) Compute user-requested fields
-    df_processed_by_source = {}  # DataFrames with computed fields for each source (rather than raw codes)
+    df_processed_by_source_year = {}  # DataFrames with computed fields for each source,year pair (rather than raw codes)
     final_df_fields = []         # For sorting columns later
     final_df_fields_set = set()  # Avoid duplicates in final_df_fields
 
@@ -419,9 +482,9 @@ def get_census_fields(categories, api_key,
     for field in fields:
         add_fieldname(field['name'])
 
-        source = field['source']
-        df_raw = df_by_source[source]
-        df_proc = df_processed_by_source.get(source, pd.DataFrame())
+        source, year = field['source'], field['year']
+        df_raw = df_by_source_year[(source, year)]
+        df_proc = df_processed_by_source_year.get((source, year), pd.DataFrame())
 
         # Add missing basic fields
         for col in ['NAME', 'GEOID']:  # Reverse order to have GEOID first
@@ -444,7 +507,7 @@ def get_census_fields(categories, api_key,
             #     df_proc[ratio_totpop_entry_name] = df_proc[field['name']] / df_raw[
             #         ACS_TOTAL_POPULATION_e]  # Ratio of total population
         
-        df_processed_by_source[source] = df_proc
+        df_processed_by_source_year[(source, year)] = df_proc
     
     # (6) Merge all sources together
     join_on = ['GEOID']
@@ -452,7 +515,7 @@ def get_census_fields(categories, api_key,
         join_on.append('NAME')
 
     df = None
-    for source, df_proc in df_processed_by_source.items():
+    for (source, year), df_proc in df_processed_by_source_year.items():
         df = (df_proc if df is None 
               else df.merge(df_proc, on=join_on, how='outer'))
 
@@ -492,6 +555,7 @@ def join_census_and_add_densities(df_geo, df_census,
     if density_fields is None:
         density_fields = []
         if categories is not None:
+            categories = format_categories_dict(categories, inplace=False)
             for cat_name, cat_dict in categories.items():
                 for field_name in cat_dict['fields'].keys():
                     universe_code = cat_dict['fields_universe'].get(
@@ -499,7 +563,7 @@ def join_census_and_add_densities(df_geo, df_census,
                         cat_dict['fields_universe']['default']
                     )
                     if universe_code and universe_code != 'NO_DENSITY_OR_RATIO':  # Includes DENSITY_ONLY
-                        density_fields.append(f"{cat_name}_{field_name}")
+                        density_fields.append(field_name)
 
             # Remove non-existent fields
             density_fields = [f for f in density_fields if f in df_geodata.columns]
