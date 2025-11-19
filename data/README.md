@@ -68,7 +68,6 @@ The [``mbta_network.gpkg``](mbta_network.gpkg) file is a collection of external 
 | ``bus_stops`` | [Mass.gov](https://www.mass.gov/info-details/massgis-data-mbta-bus-routes-and-stops) | [MassGIS Data Hub](https://gis.data.mass.gov/maps/cef8d0fe8b9d49fe9aa8f1b7524c6ac2/explore) |
 | ``rapid_transit_routes_gtfs`` | N/A | [MassDOT ArcGIS API](https://gis.massdot.state.ma.us/arcgis/rest/services/Multimodal/GTFS_Systemwide/MapServer/1) |
 | ``rapid_transit_stops_gtfs`` | N/A | [MassDOT ArcGIS API](https://gis.massdot.state.ma.us/arcgis/rest/services/Multimodal/GTFS_Systemwide/MapServer/0) |
-| ``commuter_rail_routes_gtfs`` | N/A | [MassDOT ArcGIS API](https://gis.massdot.state.ma.us/arcgis/rest/services/Multimodal/GTFS_Systemwide/MapServer/3) |
 | ``commuter_rail_stops_gtfs`` | N/A | [MassDOT ArcGIS API](https://gis.massdot.state.ma.us/arcgis/rest/services/Multimodal/GTFS_Systemwide/MapServer/2) |
 | ``bus_routes_gtfs`` | N/A | [MassDOT ArcGIS API](https://gis.massdot.state.ma.us/arcgis/rest/services/Multimodal/GTFS_Systemwide/MapServer/5) |
 | ``bus_stops_gtfs`` | N/A | [MassDOT ArcGIS API](https://gis.massdot.state.ma.us/arcgis/rest/services/Multimodal/GTFS_Systemwide/MapServer/4) |
